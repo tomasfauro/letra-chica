@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
+/* Forzar esquema claro para que el SO no aplique dark */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  /* Colores base (claro) */
+  --background: #f9fafb; /* Tailwind gray-50 */
+  --foreground: #111827; /* Tailwind gray-900 */
 
   /* fuentes asignadas desde layout.tsx */
   --font-sans: var(--font-geist-sans);
@@ -16,16 +20,16 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ❌ Eliminamos el media-query que forzaba oscuro automáticamente */
+/* @media (prefers-color-scheme: dark) { ... } */
+
+html, body {
+  min-height: 100%;
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 

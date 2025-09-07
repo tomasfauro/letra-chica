@@ -1,71 +1,62 @@
 import Link from "next/link";
+import { FileText, Zap, Shield } from "lucide-react";
 
-/**
- * Home page of the application.
- *
- * This component renders a simple landing page with two primary actions:
- *  - Ingresar una cláusula para análisis exprés.
- *  - Subir un contrato completo en formato PDF para un análisis profundo.
- *
- * Utilizamos el componente `Link` de Next.js en lugar de etiquetas `<a>`
- * tradicionales. Esto permite que el enrutamiento interno aproveche
- * funcionalidades como el prefetching y la navegación sin recargar la página.
- */
 export default function Home() {
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      {/* HEADER */}
-      <header className="w-full py-4 shadow bg-white">
-        <div className="max-w-5xl mx-auto flex justify-between items-center px-6">
-          <h1 className="text-xl font-bold text-gray-900">LetraChica.com.ar</h1>
-          <nav className="space-x-4">
-            {/* Utilizamos Link para navegación interna */}
-            <Link href="/express" className="text-gray-600 hover:text-blue-600">
-              Express
-            </Link>
-            <Link href="/upload" className="text-gray-600 hover:text-blue-600">
-              Subir PDF
-            </Link>
-          </nav>
-        </div>
-      </header>
-
-      {/* MAIN */}
-      <main className="flex flex-col items-center justify-center text-center flex-1 px-6 py-12">
-        <h2 className="text-2xl font-extrabold text-gray-900 mb-4">
+    <main className="min-h-[calc(100vh-120px)] bg-gray-50 flex items-center">
+      <section className="max-w-5xl mx-auto px-6 text-center">
+        <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900">
           Antes de firmar, entendé tu contrato en 3 minutos
-        </h2>
-        <p className="text-gray-700 max-w-xl mb-8">
-          Subí tu contrato o pegá una cláusula y nuestra herramienta te la
-          traducirá a un lenguaje simple, con alertas de cláusulas dudosas.
+        </h1>
+        <p className="mt-3 text-gray-700 max-w-2xl mx-auto">
+          Subí tu contrato o pegá una cláusula y nuestra herramienta la traduce a
+          lenguaje simple, con alertas de cláusulas dudosas.
         </p>
-        <div className="flex gap-4">
-          {/* Botón secundario */}
-          <Link
-            href="/express"
-            className="px-5 py-3 rounded-lg bg-gray-200 text-gray-800 hover:bg-gray-300 transition"
-          >
-            Análisis express (gratis)
-          </Link>
-          {/* Botón primario */}
+
+        <div className="mt-6 flex gap-3 justify-center">
           <Link
             href="/upload"
-            className="px-5 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
           >
+            <FileText size={18} />
             Subir contrato (PDF)
           </Link>
+          <Link
+            href="/express"
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-gray-200 text-gray-800 hover:bg-gray-300 transition"
+          >
+            <Zap size={18} />
+            Análisis express (gratis)
+          </Link>
         </div>
-        <p className="mt-6 text-sm text-gray-500">
-          * Análisis informativo, no constituye asesoría legal.
-        </p>
-      </main>
 
-      {/* FOOTER */}
-      <footer className="bg-white py-4 shadow-inner">
-        <div className="max-w-5xl mx-auto text-center text-sm text-gray-500">
-          © {new Date().getFullYear()} LetraChica.com.ar
+        {/* Beneficios */}
+        <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-8 text-left md:text-center">
+          <div>
+            <Zap className="mx-auto text-blue-600" size={24} />
+            <h3 className="mt-2 font-semibold">Ahorra tiempo</h3>
+            <p className="text-sm text-neutral-600">
+              En segundos obtenés un resumen claro de tus cláusulas.
+            </p>
+          </div>
+          <div>
+            <FileText className="mx-auto text-blue-600" size={24} />
+            <h3 className="mt-2 font-semibold">Detecta riesgos</h3>
+            <p className="text-sm text-neutral-600">
+              Señalamos permanencias, penalizaciones y cesiones de datos.
+            </p>
+          </div>
+          <div>
+            <Shield className="mx-auto text-blue-600" size={24} />
+            <h3 className="mt-2 font-semibold">Más transparencia</h3>
+            <p className="text-sm text-neutral-600">
+              Entendé la letra chica con lenguaje simple y neutral.
+            </p>
+          </div>
         </div>
-      </footer>
-    </div>
+
+
+      </section>
+    </main>
   );
 }

@@ -1,27 +1,16 @@
-declare module "pdf-parse/lib/pdf-parse.js" {
-  import { PDFInfo } from "pdf-parse";
-
-  interface PDFMeta {
-    info: PDFInfo;
-    metadata?: any;
-    version?: string;
-    numpages: number;
-    numrender: number;
-  }
-
-  interface PDFResult {
+// src/types/pdf-parse.d.ts
+declare module "pdf-parse" {
+  export interface PDFParseResult {
     text: string;
-    info: PDFInfo;
-    metadata: any;
-    version: string;
     numpages: number;
-    numrender: number;
+    numrender?: number;
+    info?: any;
+    metadata?: any;
+    version?: string | null;
   }
 
-  function pdfParse(
-    buffer: Buffer,
+  export default function pdfParse(
+    buffer: Buffer | Uint8Array,
     options?: Record<string, unknown>
-  ): Promise<PDFResult>;
-
-  export default pdfParse;
+  ): Promise<PDFParseResult>;
 }
