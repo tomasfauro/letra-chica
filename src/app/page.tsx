@@ -1,4 +1,5 @@
-import Link from "next/link";
+import ReportButton from "../components/ReportButton";
+import Link from "next/link";  
 import { FileText, Zap, Shield } from "lucide-react";
 
 export default function Home() {

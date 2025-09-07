@@ -1,5 +1,5 @@
 "use client";
-
+import ReportButton from "@/components/ReportButton";
 import { useCallback, useRef, useState } from "react";
 import { FindingsList } from "@/components/FindingsList";
 import type { Finding } from "@/rules";
@@ -206,26 +206,32 @@ export default function UploadPage() {
                   )}
                 </div>
 
-                {/* Hallazgos */}
-                <FindingsList items={resp.findings} />
+{/* Hallazgos */}
+<div id="report-root">
+  <FindingsList items={resp.findings} />
+</div>
 
-                <div className="flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={onReset}
-                    className="px-3 py-2 rounded border bg-white hover:bg-neutral-50 text-sm"
-                  >
-                    Subir otro contrato
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    className="px-3 py-2 rounded bg-neutral-200 text-neutral-600 text-sm cursor-not-allowed"
-                    title="Próximamente"
-                  >
-                    Descargar informe (próximamente)
-                  </button>
-                </div>
+               <div className="flex justify-end gap-3">
+  <button
+    type="button"
+    onClick={onReset}
+    className="px-3 py-2 rounded border bg-white hover:bg-neutral-50 text-sm"
+  >
+    Subir otro contrato
+  </button>
+
+<ReportButton
+  findings={resp.findings}
+  fileName={`informe-letrachica-${resp.meta.filename || "analisis"}.pdf`}
+  meta={{
+    filename: resp.meta.filename,
+    pages: resp.meta.nPages,
+    sizeMB: resp.meta.sizeMB,
+  }}
+/>
+
+</div>
+
               </div>
             )}
           </div>

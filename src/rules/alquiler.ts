@@ -15,6 +15,14 @@ export const ruleAlquilerFianza: Rule = (raw) => {
         "Se menciona fianza/depósito. Revisá monto, devolución y si piden garantías adicionales.",
       text: raw,
       index: m.index,
+      meta: {
+        bullets: [
+          "Verificá el monto frente al límite legal permitido.",
+          "Chequeá plazos y condiciones de devolución.",
+          "Revisá si piden garantías adicionales fuera de la fianza."
+        ],
+        keywords: ["fianza", "depósito", "garantía"]
+      }
     }),
   ];
 };
@@ -33,6 +41,14 @@ export const ruleAlquilerDuracion: Rule = (raw) => {
         "Revisá plazos mínimos, prórrogas tácitas y requisitos de preaviso.",
       text: raw,
       index: m.index,
+      meta: {
+        bullets: [
+          "Controlá que el plazo no sea menor al legal.",
+          "Verificá si hay prórroga automática al vencimiento.",
+          "Chequeá si exigen preaviso para terminar el contrato."
+        ],
+        keywords: ["duración", "vigencia", "prórroga", "reconducción"]
+      }
     }),
   ];
 };
@@ -54,6 +70,14 @@ export const ruleAlquilerDesistimiento: Rule = (raw) => {
         "Puede haber preavisos o penalidades. Revisá proporcionalidad e importes.",
       text: raw,
       index: m.index,
+      meta: {
+        bullets: [
+          "Verificá si hay obligación de preaviso y de cuántos días.",
+          "Chequeá penalidades por romper antes del plazo.",
+          "Compará los importes con lo permitido en la ley."
+        ],
+        keywords: ["desistimiento", "resolución", "penalidad", "multa", "preaviso"]
+      }
     }),
   ];
 };
@@ -75,6 +99,14 @@ export const ruleAlquilerGastos: Rule = (raw) => {
         "Revisá qué paga cada parte y si hay 'gastos extraordinarios'.",
       text: raw,
       index: m.index,
+      meta: {
+        bullets: [
+          "Chequeá si te cargan expensas extraordinarias (normalmente corresponden al dueño).",
+          "Verificá qué servicios están incluidos (agua, luz, gas).",
+          "Aclarar si comunidad o consorcio están a cargo del inquilino o propietario."
+        ],
+        keywords: ["expensas", "extraordinario", "suministros", "agua", "luz", "gas"]
+      }
     }),
   ];
 };
