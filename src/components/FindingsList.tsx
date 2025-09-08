@@ -69,10 +69,15 @@ export function FindingsList({ items }: { items: Finding[] }) {
     return <p className="text-sm text-neutral-500">No se detectaron hallazgos con las reglas actuales.</p>;
   }
 
-  const ordered = useMemo(
-    () => [...items].sort((a, b) => sevStyle[b.severity].weight - sevStyle[a.severity].weight),
-    [items]
-  );
+  // Orden: severidad (alto→bajo), y a igual severidad: legal → heurística
+  const ordered = useMemo(() => {
+    const typeWeight = (t?: string) => (t === "legal" ? 1 : 0);
+    return [...items].sort((a, b) => {
+      const bySev = sevStyle[b.severity].weight - sevStyle[a.severity].weight;
+      if (bySev !== 0) return bySev;
+      return typeWeight(b.meta?.type as string) - typeWeight(a.meta?.type as string);
+    });
+  }, [items]);
 
   const groups = useMemo(() => groupByTheme(ordered), [ordered]);
 
@@ -117,6 +122,53 @@ function FindingCard({ finding }: { finding: Finding }) {
           <h4 className="font-bold text-gray-900 text-base">{finding.title}</h4>
         </div>
         <span className={`text-xs font-semibold px-2 py-1 rounded ${sev.badge}`}>{sev.label}</span>
+      </div>
+
+      {/* NUEVO: Badges de tipo de regla y Base legal */}
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        {finding.meta?.type && (
+          <span
+            className={`text-[11px] px-2 py-0.5 rounded-full border ${
+              finding.meta.type === "legal"
+                ? "bg-blue-50 text-blue-800 border-blue-200"
+                : "bg-purple-50 text-purple-800 border-purple-200"
+            }`}
+            title={finding.meta.type === "legal"
+              ? "Respaldado por norma (regla dura)"
+              : "Heurística (buenas prácticas y abusos comunes)"}
+          >
+            {finding.meta.type === "legal" ? "Regla legal" : "Heurística"}
+          </span>
+        )}
+
+        {(finding.meta?.legalBasis?.length ?? 0) > 0 && (
+          <details className="text-[11px]">
+            <summary className="cursor-pointer inline-flex items-center px-2 py-0.5 rounded-full border bg-neutral-50 text-neutral-800">
+              Base legal
+            </summary>
+            <ul className="mt-2 list-disc list-inside text-xs text-neutral-700">
+              {finding.meta!.legalBasis!.map((b: any, i: number) => (
+                <li key={i}>
+                  <strong>{b.law}</strong>
+                  {b.article ? ` – ${b.article}` : ""}{b.note ? `: ${b.note}` : ""}
+                  {b.link && (
+                    <>
+                      {" "}
+                      <a
+                        className="text-blue-700 underline"
+                        href={b.link}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        ver
+                      </a>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </div>
 
       <p className="mt-2 text-sm text-neutral-700">{finding.description}</p>
