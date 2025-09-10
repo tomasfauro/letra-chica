@@ -1,6 +1,19 @@
 // src/rules/utils.ts
 import type { Finding } from "./types";
 
+/* ========================================================================== */
+/* Normalización y helpers                                                    */
+/* ========================================================================== */
+
+export function normalize(s: string) {
+  return (s ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 /** Devuelve un recorte legible alrededor del índice detectado.
  *  Prioriza párrafo completo (\n\n). Si no, ±window caracteres.
  */
@@ -11,6 +24,32 @@ export function extractEvidence(text: string, index: number, window = 300): stri
   const start = Math.max(0, prev === -1 ? Math.max(0, index - window) : prev);
   const end = Math.min(text.length, next === -1 ? Math.min(text.length, index + window) : next);
   return text.slice(start, end).trim();
+}
+
+/** Toma una sola oración (., !, ?) alrededor del índice. Útil para evidence concisa. */
+export function extractSentence(text: string, index: number, fallbackWindow = 220): string {
+  if (!text) return "";
+  const leftDot = Math.max(
+    text.lastIndexOf(". ", index),
+    text.lastIndexOf("! ", index),
+    text.lastIndexOf("? ", index)
+  );
+  const L = leftDot >= 0 ? leftDot + 2 : Math.max(0, index - fallbackWindow);
+
+  const rightDot = text.indexOf(". ", index);
+  const rightEx = text.indexOf("! ", index);
+  const rightQ = text.indexOf("? ", index);
+  const rights = [rightDot, rightEx, rightQ].filter((x) => x >= 0);
+  const R = rights.length ? Math.min(...rights) + 1 : Math.min(text.length, index + fallbackWindow);
+
+  return text.slice(L, Math.min(R + 1, text.length)).trim();
+}
+
+/** Elige la mejor evidencia: prioriza oración si es suficientemente larga; si no, párrafo. */
+export function bestEvidence(text: string, index: number, preferSentence = true): string {
+  const sent = extractSentence(text, index);
+  if (preferSentence && sent && sent.length >= 40) return sent;
+  return extractEvidence(text, index);
 }
 
 /** Construye un finding con evidencia y meta enriquecida (bullets/keywords). */
@@ -25,14 +64,19 @@ export function makeFinding(opts: {
   meta?: Record<string, unknown>;
   bullets?: string[];
   keywords?: string[];
+  preferSentenceEvidence?: boolean; // NUEVO: true = oración; false = párrafo
 }): Finding {
-  const { id, title, severity, description, text, index, window, meta, bullets, keywords } = opts;
+  const {
+    id, title, severity, description, text, index, window, meta, bullets, keywords,
+    preferSentenceEvidence = true,
+  } = opts;
+  const evidence = preferSentenceEvidence ? bestEvidence(text, index) : extractEvidence(text, index, window);
   return {
     id,
     title,
     severity,
     description,
-    evidence: extractEvidence(text, index, window),
+    evidence,
     meta: {
       ...(meta ?? {}),
       ...(bullets ? { bullets } : {}),
@@ -41,15 +85,27 @@ export function makeFinding(opts: {
   };
 }
 
-// ---------------------
-// Helpers para precisión
-// ---------------------
+/* ========================================================================== */
+/* Helpers para precisión (lo que ya tenías) + ampliaciones                   */
+/* ========================================================================== */
 
-// Palabras que indican NEGACIÓN o “no aplica”
-const NEGATIONS = /\b(no|sin|queda? prohibid[ao]|no se|no aplica)\b/i;
+/** Palabras que indican NEGACIÓN o “no aplica” */
+const NEGATIONS = /\b(no|sin|queda?\s+prohibid[ao]|no\s+se|no\s+aplica|salvo|excepto|sin\s+perjuicio\s+de)\b/i;
 
-// Términos que suelen aparecer cuando se habla de PRECIO/ALQUILER
+/** Términos que suelen aparecer cuando se habla de PRECIO/ALQUILER */
 const PRICE_TERMS = /\b(renta|canon|alquiler|precio|locaci[oó]n|arrendamiento)\b/i;
+
+/** Anclas legales útiles para boostear score (art., LCT, 92 bis, 245, ley, etc.) */
+const LEGAL_ANCHORS: RegExp[] = [
+  /\bart[íi]culo?\b/i,
+  /\bley\b/i,
+  /\b(lct|ley\s*20\.?744|27\.?742)\b/i,
+  /\b92\s*bis\b/i,
+  /\b245\b/i,
+];
+
+/** Números “de riesgo” (meses, días, %, años) */
+const RISK_NUMBERS = /\b(\d{1,3})\s*(mes(?:es)?|d[ií]as|a[nñ]os|%)\b/i;
 
 /** Devuelve un slice de texto alrededor de un índice. */
 export function sliceAround(text: string, index: number, win = 200) {
@@ -78,7 +134,19 @@ export function hasPriceTermsNear(text: string, index: number, win = 160) {
   return PRICE_TERMS.test(ctx);
 }
 
-/** Scoring simple 0–1 sumando evidencias */
+/** ¿Hay anclas legales cerca? */
+export function hasLegalAnchor(text: string, index: number, win = 220) {
+  const ctx = sliceAround(text, index, win);
+  return LEGAL_ANCHORS.some((rx) => rx.test(ctx));
+}
+
+/** ¿Hay números relevantes (plazos/%) cerca? */
+export function hasRiskNumbersNear(text: string, index: number, win = 220) {
+  const ctx = sliceAround(text, index, win);
+  return RISK_NUMBERS.test(ctx);
+}
+
+/** Scoring simple 0–1 sumando evidencias (lo que ya tenías) */
 export function score(parts: Array<boolean | number>, weights?: number[]) {
   let s = 0, w = 0;
   parts.forEach((p, i) => {
@@ -89,17 +157,29 @@ export function score(parts: Array<boolean | number>, weights?: number[]) {
   return w > 0 ? +(s / w).toFixed(2) : 0;
 }
 
-/** 
- * Alinea el índice de un match hecho sobre `lower` a su posición real en `raw`.
- * Útil para que la evidencia (extraída de `raw`) quede anclada exactamente al texto que disparó.
- *
- * @param raw         Texto original (con mayúsculas/acentos)
- * @param lower       Texto en minúsculas usado para los regex
- * @param lowerIndex  Índice obtenido sobre `lower`
- * @param matchedLower Texto que matcheó (tal como se buscó en `lower`)
- * @param win         Ventana alrededor del índice para buscar el match en `raw`
- * @returns índice alineado sobre `raw` (si falla, devuelve `lowerIndex` como fallback)
- */
+/** Scoring compuesto estándar (NUEVO): base + anclas + números − negación + extraBoost */
+export function computeScore(opts: {
+  matched: boolean;       // hubo match principal
+  text: string;           // texto ORIGINAL
+  index: number;          // índice del match (sobre lower pero mapeado a raw si usás alignIndex)
+  extraBoost?: number;    // +0..+0.4 aprox por riesgos específicos de la regla
+  negationPenalty?: number; // default 0.2
+}): { confidence: number; severity: "low" | "medium" | "high" } {
+  const { matched, text, index, extraBoost = 0, negationPenalty = 0.2 } = opts;
+  if (!matched) return { confidence: 0, severity: "low" };
+
+  let conf = 0.5; // base por match principal
+  if (hasLegalAnchor(text, index)) conf += 0.2;
+  if (hasRiskNumbersNear(text, index)) conf += 0.2;
+  if (extraBoost) conf += extraBoost;
+  if (hasNegationNear(text, index)) conf -= negationPenalty;
+
+  conf = Math.max(0, Math.min(1, conf));
+  const severity = conf >= 0.8 ? "high" : conf >= 0.6 ? "medium" : "low";
+  return { confidence: +conf.toFixed(2), severity };
+}
+
+/** Alinea el índice de un match hecho sobre `lower` a su posición real en `raw`. */
 export function alignIndex(
   raw: string,
   lower: string,
@@ -112,11 +192,9 @@ export function alignIndex(
   const end = Math.min(lower.length, lowerIndex + matchedLower.length + win);
   const rawSlice = raw.slice(start, end);
 
-  // escapamos regex metacaracteres del texto matcheado
   const esc = matchedLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rx = new RegExp(esc, "i");
   const m = rx.exec(rawSlice);
-  if (!m) return lowerIndex; // fallback si no encontramos coincidencia en el raw
-
+  if (!m) return lowerIndex;
   return start + m.index;
 }

@@ -5,15 +5,17 @@ import {
   sliceAround,
   hasPriceTermsNear,
   hasNegationNear,
-  score,
+  score,            // lo seguimos usando para tu mini-heurística interna
+  computeScore,     // NUEVO: scoring compuesto estándar
+  alignIndex,       // NUEVO: alinear índice raw/lower para evidencia correcta
 } from "./utils";
 import { getLegalContext } from "../lib/legal";
 
 /** Ancla para depósito/fianza/garantía (evita “depósito bancario …”) */
 const ANCHOR_RE =
-  /\b(dep[oó]sito(?:\s+(?:en|de)\s+garant[ií]a)?|fianza|garant[ií]a)(?!\s+bancari[oa])\b/g;
+  /\b(dep[oó]sito(?:\s+(?:en|de)\s+garant[ií]a)?|fianza|garant[ií]a)(?!\s+bancari[oa])\b/gi;
 
-/** Descarta “depósito bancario”, etc. */
+/** Descarta “depósito bancario”, etc. (usa lower/cerca del índice) */
 function looksLikeBankDeposit(lower: string, index: number): boolean {
   const ctx = sliceAround(lower, index, 140);
   return /\bbancari[oa]|cuenta\s+bancaria|plazo\s+fijo|caja\s+de\s+ahorro\b/.test(ctx);
@@ -53,7 +55,8 @@ function extractMonthsNear(lower: string, index: number): number | null {
   if (/\bequivalente\s+al\s+primer\s+mes\b/.test(around)) return 1;
 
   // “equivalente a un (1) mes (de alquiler)” → 1
-  if (/\bequivalente\s+a\s+(?:un|uno)\s*\(?(?:1|1º|1o)?\)?\s*mes(?:es)?(?:\s+de\s+alquiler)?\b/.test(around)) return 1;
+  if (/\bequivalente\s+a\s+(?:un|uno)\s*\(?(?:1|1º|1o)?\)?\s*mes(?:es)?(?:\s+de\s+alquiler)?\b/.test(around))
+    return 1;
 
   // “primer (1º) mes” / “primero (1o) mes” / “primer mes” → 1
   if (/\bprimer(?:o)?\s*(?:\((?:1|1º|1o)\))?\s*mes\b/.test(around)) return 1;
@@ -61,24 +64,21 @@ function extractMonthsNear(lower: string, index: number): number | null {
   return null;
 }
 
-/** Recorre anclas y suma meses + primer índice útil. */
+/** Recorre anclas y suma meses + primer índice útil (sobre `lower`). */
 function collectDeposits(lower: string) {
   const indices: number[] = [];
   let totalMonths = 0;
 
-  ANCHOR_RE.lastIndex = 0;
+  // Reiniciamos la búsqueda global
+  const re = new RegExp(ANCHOR_RE.source, "gi");
   let m: RegExpExecArray | null;
-  while ((m = ANCHOR_RE.exec(lower)) !== null) {
+  while ((m = re.exec(lower)) !== null) {
     const idx = m.index!;
     if (looksLikeBankDeposit(lower, idx)) continue;
 
     const months = extractMonthsNear(lower, idx);
-    if (months != null) {
-      totalMonths += months;
-      indices.push(idx);
-    } else {
-      indices.push(idx);
-    }
+    if (months != null) totalMonths += months;
+    indices.push(idx);
   }
 
   const firstIndex = indices.length ? indices[0] : -1;
@@ -86,8 +86,9 @@ function collectDeposits(lower: string) {
 }
 
 export const ruleDepositoUnMes: Rule = (raw) => {
-  const lower = raw.toLowerCase();
-  const ctx = getLegalContext(raw);
+  const text = raw ?? "";
+  const lower = text.toLowerCase();
+  const ctx = getLegalContext(text);
 
   // AR-only (la app hoy es AR). Si no viene país, asumimos AR.
   const country = (ctx.country as string) ?? "AR";
@@ -105,24 +106,44 @@ export const ruleDepositoUnMes: Rule = (raw) => {
   const { totalMonths, firstIndex, foundAny } = collectDeposits(lower);
   if (!foundAny) return [];
 
-  const idx = firstIndex >= 0 ? firstIndex : 0;
+  // Alinear índice al RAW (acentos/mayúsculas) para evidencia correcta
+  // Volvemos a ejecutar un regex "no global" desde firstIndex para obtener el texto matcheado
+  const re = new RegExp(ANCHOR_RE.source, "i");
+  const subLower = lower.slice(firstIndex >= 0 ? firstIndex : 0);
+  const m2 = re.exec(subLower);
+  const idxLower = (firstIndex >= 0 ? firstIndex : 0) + (m2?.index ?? 0);
+  const idxRaw = alignIndex(text, lower, idxLower, m2?.[0] ?? "deposito");
 
   // Señales de contexto
-  const talksLease = hasPriceTermsNear(lower, idx, 200); // canon/alquiler/precio…
+  const talksLease = hasPriceTermsNear(lower, idxLower, 200); // canon/alquiler/precio…
   const leaseNear = /\b(locador|locatari[oa]|inmueble|vivienda|alquiler|canon)\b/.test(
-    sliceAround(lower, idx, 200)
+    sliceAround(lower, idxLower, 200)
   );
-  const neg = hasNegationNear(lower, idx, 160); // “sin depósito”, “no se exigirá…”
+  const neg = hasNegationNear(lower, idxLower, 160); // “sin depósito”, “no se exigirá…”
 
-  // Confianza (permitimos disparar aun sin meses si el contexto es claro)
-  const confidence = score([talksLease || leaseNear, totalMonths > 0, !neg], [1.3, 1.0, 0.8]);
+  // Mini-heurística tuya (la mantenemos como plus para el computeScore)
+  const heuristicConf = score([talksLease || leaseNear, totalMonths > 0, !neg], [1.3, 1.0, 0.8]);
 
-  // Severidad
-  let severity: "low" | "medium" | "high" = "medium";
-  if (totalMonths > 1) severity = "high";
+  // Extra boost por riesgo:
+  //  - >1 mes detectado → +0.20
+  //  - 1 mes explícito → +0.10 (porque está cuantificado)
+  let extraBoost = 0;
+  if (totalMonths > 1) extraBoost += 0.2;
+  else if (totalMonths === 1) extraBoost += 0.1;
 
-  // Si NO pudimos extraer meses y la confianza es muy baja, no disparamos
-  if (totalMonths === 0 && confidence < 0.6) return [];
+  // Scoring compuesto estándar: anclas legales + números + negación + boost + heurística
+  const { confidence, severity: sevFromScore } = computeScore({
+    matched: true,
+    text,         // computeScore inspecciona alrededor de idxRaw en el RAW
+    index: idxRaw,
+    extraBoost: extraBoost + Math.max(0, heuristicConf - 0.6),
+  });
+
+  if (confidence < 0.6) return [];
+
+  // Regla de negocio: si detectamos >1 mes, forzar "high"
+  const severity: "low" | "medium" | "high" =
+    totalMonths > 1 ? "high" : sevFromScore;
 
   return [
     makeFinding({
@@ -136,12 +157,13 @@ export const ruleDepositoUnMes: Rule = (raw) => {
         totalMonths > 1
           ? "Se detecta un total de garantías/depósitos mayor a un (1) mes de alquiler. En AR no deben superar el equivalente al primer mes y su devolución debe ser clara."
           : "Se menciona depósito/fianza. Verificá que el total de garantías no supere un (1) mes y que la modalidad/valor de devolución sea clara.",
-      text: raw,
-      index: idx,
+      text,
+      index: idxRaw,
       window: 260,
       meta: {
-        type: "legal",
+        type: "legal+composite",
         confidence,
+        heuristicConfidence: heuristicConf,
         country,
         regime: ctx.regime,
         contractType: ctx.contractType,

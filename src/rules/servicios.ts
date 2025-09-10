@@ -116,69 +116,200 @@ export const rulePlanPermanencia: Rule = (raw) => {
 };
 
 /** ---------- Cesión de datos / consentimiento amplio (AR) ---------- */
-const DATA_TRIGGER =
-  /\b(datos\s+personales?|tratamiento\s+de\s+datos|protecci[oó]n\s+de\s+datos|base\s+de\s+datos|ley\s+25\.?326)\b/;
+/** Ancla amplia para otros casos (la dejamos por si aparecen más coincidencias) */
+const DATA_ANCHOR =
+  /\b((datos\s+personales?|informaci[oó]n\s+personal|datos\s+del\s+usuario).{0,80}\b(cesi[oó]n|ceder|transferir|transferencia|compartir|comunicar)\b|cesi[oó]n\s+de\s+datos|transferencia\s+de\s+datos|compartir\s+datos|comunicar\s+datos)\b/gi;
+
+/** Fast-paths del dataset */
+const DIRECT_ANY =
+  /\bcesi[oó]n(?:\s+de)?\s+datos\b[\s\S]{0,250}\b(tercer(?:o|os)|terceras?\s+(?:partes?|personas?)|fines?\s+comerciales?|marketing|publicidad)\b/i;
+const DIRECT_TRANSFER =
+  /\btransferenc(?:ia|ias)\s+de\s+datos\b[\s\S]{0,250}\b(tercer(?:o|os)|terceras?\s+(?:partes?|personas?)|fines?\s+comerciales?|marketing|publicidad)\b/i;
+
+/** Detector global (orden/distancia libre) */
+const HAS_ACTION = /\b(cesi[oó]n|ceder|transferir|transferencia|compartir|comunicar)\b/i;
+const HAS_DATOS = /\bdatos?\b/i;
+const HAS_SCOPE = /\b(tercer(?:o|os)|terceras?\s+(?:partes?|personas?)|fines?\s+comerciales?|marketing|publicidad)\b/i;
 
 export const ruleDatosCesion: Rule = (raw) => {
   const lower = raw.toLowerCase();
   const ctxLegal = getLegalContext(raw);
+  const out: ReturnType<Rule> = [];
 
-  const t = DATA_TRIGGER.exec(lower);
-  if (!t) return [];
+  // 0) Global ANY-ORDER: acción + datos + alcance (terceros/marketing/publicidad)
+  if (HAS_ACTION.test(lower) && HAS_DATOS.test(lower) && HAS_SCOPE.test(lower)) {
+    const idx = lower.search(HAS_ACTION); // primer match como ancla
+    const neg = hasNegationNear(lower, Math.max(0, idx), 160);
 
-  const around = sliceAround(lower, t.index!, 300);
+    out.push(
+      makeFinding({
+        id: "proteccion-datos",
+        title: "Cesión/transferencia de datos a terceros (fines comerciales)",
+        severity: neg ? "medium" : "high",
+        description:
+          "Se detecta cesión/transferencia de datos a terceros o con fines comerciales/marketing. Verificá consentimiento, finalidad, derecho de oposición y transferencias.",
+        text: raw,
+        index: Math.max(0, idx),
+        window: 300,
+        meta: {
+          type: "legal",
+          confidence: neg ? 0.85 : 0.96,
+          country: "AR",
+          regime: ctxLegal.regime,
+          legalBasis: [
+            { law: "Ley 25.326 (AR)", note: "Consentimiento, finalidad, derechos ARCO, transferencias.", jurisdiction: "AR" },
+            { law: "Decreto 1558/2001 (AR)", note: "Reglamentación.", jurisdiction: "AR" },
+          ],
+          bullets: [
+            "¿Quiénes son los terceros y con qué finalidad usan tus datos?",
+            "Si hay fines comerciales/marketing, debe haber consentimiento válido y opt-out.",
+            "Pedí plazos de conservación y canal para ejercer derechos.",
+          ],
+          keywords: ["cesión de datos", "transferencia", "terceros", "fines comerciales", "marketing", "publicidad", "ARCO"],
+        },
+      })
+    );
+    // No return: dejamos seguir para captar posibles matches adicionales
+  }
 
-  const ced = /\b(ceder|cesi[oó]n|transferir|compartir|comunicar)\b.*\b(terceros|proveedores|grupo\s+empresarial|filiales)\b/.test(around);
-  const comercial = /\b(fines?\s+comerciales?|marketing|publicidad|promoci[oó]n|perfilado|profiling)\b/.test(around);
-  const internacional = /\b(transferencias?\s+internacional(?:es)?|fuera\s+del\s+pa[ií]s|extranjero)\b/.test(around);
-  const baseLegal = /\b(consentimiento|autorizo|autorizaci[oó]n|leg[ií]timo\s+inter[eé]s)\b/.test(around);
+  // 1) Fast-paths por frases típicas
+  const direct1 = DIRECT_ANY.exec(lower);
+  if (direct1) {
+    const idx = direct1.index;
+    const neg = hasNegationNear(lower, idx, 160);
+    out.push(
+      makeFinding({
+        id: "proteccion-datos",
+        title: "Cesión/transferencia de datos a terceros (fines comerciales)",
+        severity: neg ? "medium" : "high",
+        description:
+          "Se detecta cesión/transferencia de datos a terceros con fines comerciales o de marketing. Verificá consentimiento, finalidad, derecho de oposición y transferencias.",
+        text: raw,
+        index: idx,
+        window: 300,
+        meta: {
+          type: "legal",
+          confidence: neg ? 0.85 : 0.96,
+          country: "AR",
+          regime: ctxLegal.regime,
+          legalBasis: [
+            { law: "Ley 25.326 (AR)", note: "Consentimiento, finalidad, derechos ARCO, transferencias.", jurisdiction: "AR" },
+            { law: "Decreto 1558/2001 (AR)", note: "Reglamentación.", jurisdiction: "AR" },
+          ],
+          bullets: [
+            "¿Quiénes son los terceros y con qué finalidad usan tus datos?",
+            "Si hay fines comerciales/marketing, debe haber consentimiento válido y opt-out.",
+            "Pedí plazos de conservación y canal para ejercer derechos.",
+          ],
+          keywords: ["cesión de datos", "transferencia", "terceros", "fines comerciales", "marketing", "publicidad", "ARCO"],
+        },
+      })
+    );
+  }
 
-  const limitaciones = /\b(finalidad|limitad[oa]s?|plazo\s+de\s+conservaci[oó]n|minimizaci[oó]n|pseudonimizaci[oó]n|anonimizaci[oó]n)\b/.test(around);
-  const derechos = /\b(derechos?\s+(arco|acceso|rectificaci[oó]n|supresi[oó]n|oposici[oó]n|portabilidad))\b/.test(around);
-  const canalDerechos = /\b(correo\s+electr[oó]nico|domicilio|formulario|canal)\b.*\b(solicitud|ejercer)\b/.test(around);
+  const direct2 = DIRECT_TRANSFER.exec(lower);
+  if (direct2) {
+    const idx = direct2.index;
+    const neg = hasNegationNear(lower, idx, 160);
+    out.push(
+      makeFinding({
+        id: "proteccion-datos",
+        title: "Transferencia de datos a terceros (fines comerciales)",
+        severity: neg ? "medium" : "high",
+        description:
+          "Se detecta transferencia de datos a terceros con fines comerciales/marketing. Revisá base legal, finalidad, oposición y transferencias.",
+        text: raw,
+        index: idx,
+        window: 300,
+        meta: {
+          type: "legal",
+          confidence: neg ? 0.85 : 0.95,
+          country: "AR",
+          regime: ctxLegal.regime,
+          legalBasis: [
+            { law: "Ley 25.326 (AR)", note: "Consentimiento, finalidad, derechos ARCO, transferencias.", jurisdiction: "AR" },
+            { law: "Decreto 1558/2001 (AR)", note: "Reglamentación.", jurisdiction: "AR" },
+          ],
+          bullets: [
+            "Identificá terceros y finalidad.",
+            "Exigí consentimiento explícito y opt-out para marketing.",
+            "Revisá plazos de conservación y canal de derechos.",
+          ],
+          keywords: ["transferencia de datos", "terceros", "fines comerciales", "marketing", "publicidad", "ARCO"],
+        },
+      })
+    );
+  }
 
-  const neg = hasNegationNear(lower, t.index!, 160);
+  // 2) Ancla general (para wording variados)
+  let m: RegExpExecArray | null;
+  while ((m = DATA_ANCHOR.exec(lower))) {
+    const idx = m.index;
+    const around = sliceAround(lower, idx, 300);
 
-  const confidence = score(
-    [true, (ced || comercial || internacional), baseLegal, (limitaciones || derechos || canalDerechos), !neg],
-    [1.0,  1.2,                                     0.8,       0.8,                                      0.7]
-  );
+    const thirdParties = /\b(tercer(?:o|os)|terceras?\s+(?:partes?|personas?)|proveedores?|encargados?|grupo\s+empresarial|filiales|afiliadas?)\b/.test(around);
+    const commercialUse = /\b(fines?\s+comerciales?|comercial(?:es)?|marketing|publicidad|promoci[oó]n|perfilado|profiling)\b/.test(around);
+    const international = /\b(transferencias?\s+internacional(?:es)?|fuera\s+del\s+pa[ií]s|extranjero|otras?\s+jurisdicci[oó]n)\b/.test(around);
+    const legalBase = /\b(consentimiento|autorizo|autorizaci[oó]n|opt-?in|base\s+legal|leg[ií]timo\s+inter[eé]s)\b/.test(around);
 
-  if (confidence < 0.6 && !(ced || comercial || internacional)) return [];
+    const limitations = /\b(finalidad|limitad[oa]s?|plazo\s+de\s+conservaci[oó]n|minimizaci[oó]n|pseudonimizaci[oó]n|anonimizaci[oó]n)\b/.test(around);
+    const rights = /\b(derechos?\s+(arco|acceso|rectificaci[oó]n|supresi[oó]n|oposici[oó]n|portabilidad))\b/.test(around);
+    const rightsChannel = /\b(correo\s+electr[oó]nico|domicilio|formulario|canal|portal)\b.*\b(solicitud|ejercer)\b/.test(around);
 
-  const high = (ced || comercial || internacional) && !(limitaciones || derechos || canalDerechos);
-  const severity: "low" | "medium" | "high" = high ? "high" : "medium";
+    const neg = hasNegationNear(lower, idx, 160);
 
-  return [
-    makeFinding({
-      id: "proteccion-datos",
-      title: high
-        ? "Tratamiento/cesión de datos amplia (revisar base legal y límites)"
-        : "Tratamiento o cesión de datos (verificar alcance)",
-      severity,
-      description: high
-        ? "Se detectan señales de cesión/comercialización, perfilado o transferencias internacionales sin límites/derechos claros. Verificá base legal, finalidad, derechos y plazos."
-        : "El contrato menciona tratamiento/cesión de datos. Confirmá base legal, finalidad, derechos ARCO y plazos de conservación.",
-      text: raw,
-      index: t.index!,
-      window: 300,
-      meta: {
-        type: "legal",
-        confidence,
-        country: "AR",
-        regime: ctxLegal.regime,
-        legalBasis: legalBasisAR(),
-        bullets: [
-          "Identificá si se ceden datos a terceros y con qué finalidad.",
-          "Verificá si la base legal es consentimiento o 'interés legítimo'.",
-          "Chequeá plazos de conservación y mecanismos para ejercer tus derechos.",
-          "Si hay transferencias internacionales, pedí garantías adecuadas.",
-        ],
-        keywords: ["cesión de datos", "perfilado", "interés legítimo", "marketing", "fines comerciales", "ARCO"],
-      },
-    }),
-  ];
+    let confidence = 0.55;
+    if (thirdParties) confidence += 0.25;
+    if (commercialUse) confidence += 0.25;
+    if (international) confidence += 0.10;
+    if (legalBase) confidence += 0.05;
+    if (limitations || rights || rightsChannel) confidence += 0.05;
+    if (neg) confidence -= 0.25;
+
+    if (confidence < 0.4) continue;
+
+    const high = (thirdParties || commercialUse || international) && !(limitations || rights || rightsChannel);
+    const severity: "low" | "medium" | "high" = neg ? "low" : high ? "high" : "medium";
+
+    out.push(
+      makeFinding({
+        id: "proteccion-datos",
+        title: high
+          ? "Cesión/transferencia de datos amplia (revisar base legal y límites)"
+          : "Tratamiento o cesión de datos (verificar alcance)",
+        severity,
+        description: high
+          ? "Se detectan señales de cesión/comercialización, perfilado o transferencias internacionales sin límites/derechos claros. Verificá base legal, finalidad, derechos y plazos."
+          : "El contrato menciona tratamiento/cesión de datos. Confirmá base legal, finalidad, derechos ARCO y plazos de conservación.",
+        text: raw,
+        index: idx,
+        window: 300,
+        meta: {
+          type: "legal",
+          confidence,
+          country: "AR",
+          regime: ctxLegal.regime,
+          legalBasis: [
+            { law: "Ley 25.326 (AR)", note: "Protección de Datos Personales.", jurisdiction: "AR" },
+            { law: "Decreto 1558/2001 (AR)", note: "Reglamentación.", jurisdiction: "AR" },
+          ],
+          bullets: [
+            "Identificá si se ceden datos a terceros y con qué finalidad.",
+            "Si hay fines comerciales/marketing, exigí consentimiento válido y opt-out.",
+            "Chequeá plazos de conservación y mecanismos para ejercer tus derechos.",
+            "Si hay transferencias internacionales, pedí garantías adecuadas.",
+          ],
+          keywords: ["cesión de datos", "transferencia", "terceros", "fines comerciales", "marketing", "publicidad", "ARCO"],
+        },
+      })
+    );
+  }
+
+  return out;
 };
+
+
+
 
 /** ---------- Jurisdicción / arbitraje ---------- */
 export const ruleJurisdiccionArbitraje: Rule = (raw) => {
