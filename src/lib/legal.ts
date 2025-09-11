@@ -14,17 +14,17 @@ export type LegalRegime =
   | "UNKNOWN";
 
 export interface LegalContext {
-  country: Country;           // NUEVO
+  country: Country;
   regime: LegalRegime;
-  contractType: ContractType; // NUEVO
-  currency: Currency;         // NUEVO
+  contractType: ContractType;
+  currency: Currency;
   contractDate?: Date | null;
 }
 
 // --- Fechas pivote AR ---
-const DATE_2020_07_01 = new Date("2020-07-01");
-const DATE_2023_10_17 = new Date("2023-10-17");
-const DATE_2023_12_21 = new Date("2023-12-21");
+const DATE_2020_07_01 = new Date("2020-07-01");   // entra Ley 27.551
+const DATE_2023_10_17 = new Date("2023-10-17");   // entra Ley 27.737
+const DATE_2023_12_21 = new Date("2023-12-21");   // entra DNU 70/2023
 
 // --- Utilidades de parsing de fecha ---
 export function extractContractDate(raw: string): Date | null {
@@ -77,7 +77,7 @@ function detectCountry(text: string): Country {
   if (es) return "ES";
   // Señales Argentina
   const ar =
-    /\b(caba|provincia de|dni|cuit|cuil|ley\s*27\.?551|bcra|icl|ripte)\b/.test(lower) ||
+    /\b(caba|provincia de|argentina|dni|cuit|cuil|ley\s*27\.?551|27\.?737|bcra|icl|ripte)\b/.test(lower) ||
     /\b(ars|ar\$|pesos?)\b/i.test(lower) ||
     /\$\s*\d/.test(text);
   if (ar) return "AR";
@@ -98,9 +98,18 @@ function detectContractType(text: string): ContractType {
   return "desconocido";
 }
 
+// --- Detección de régimen por pistas en el texto ---
+function hintsRegimeAR(text: string): LegalRegime | null {
+  const t = text.toLowerCase();
+  if (/\bdnu\s*70\/?2023\b/.test(t)) return "DNU_70_2023";
+  if (/\bley\s*27\.?737\b/.test(t)) return "LEY_27737";
+  if (/\bley\s*27\.?551\b/.test(t)) return "LEY_27551";
+  return null;
+}
+
 // --- Cálculo de régimen legal ---
 function regimeForAR(date: Date | null): LegalRegime {
-  if (!date) return "DNU_70_2023"; // fallback prudente
+  if (!date) return "DNU_70_2023"; // fallback prudente (no marcar periodicidad salvo pista en texto)
   if (date < DATE_2020_07_01) return "PRE_27551";
   if (date >= DATE_2020_07_01 && date <= DATE_2023_10_17) return "LEY_27551";
   if (date > DATE_2023_10_17 && date < DATE_2023_12_21) return "LEY_27737";
@@ -125,6 +134,18 @@ export function getLegalContext(raw: string): LegalContext {
   }
 
   if (country === "AR") {
+    // 1) Si el texto trae una pista explícita de régimen, usala
+    const hinted = hintsRegimeAR(raw);
+    if (hinted) {
+      return {
+        country: "AR",
+        regime: hinted,
+        contractType,
+        currency,
+        contractDate: date,
+      };
+    }
+    // 2) Si no hay pista, usamos la fecha (o fallback prudente a DNU)
     return {
       country: "AR",
       regime: regimeForAR(date),
@@ -134,7 +155,7 @@ export function getLegalContext(raw: string): LegalContext {
     };
   }
 
-  // Desconocido: devolvemos régimen abierto y marcadores para que el runner avise
+  // Desconocido: devolvemos régimen abierto y marcadores
   return {
     country: "UNKNOWN",
     regime: "UNKNOWN",

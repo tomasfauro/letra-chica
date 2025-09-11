@@ -1,31 +1,33 @@
+// src/rules/__tests__/smoke.test.ts
 import { describe, it, expect } from "vitest";
 
-// Importá el runner de reglas
-import { runRules } from "../index.ts";
+// Runner de reglas (exporta runRules y runRulesForType)
+import { runRules, runRulesForType } from "../index";
 
-// Dataset original
-import { positives, negatives } from "./dataset.ts";
+// Dataset mini
+import { positives, negatives } from "./dataset";
 
-/** Utilidad: devuelve true si hay un hallazgo con alguno de los IDs esperados */
+/** Utilidad: ¿algún ID de la lista está presente en el set? */
 function hasAnyId(ids: Set<string>, candidates: string[]) {
   return candidates.some((c) => ids.has(c));
 }
 
-describe("smoke: reglas básicas", () => {
+describe("smoke: reglas básicas (servicios/consumo)", () => {
   it("permanencia dispara", () => {
     for (const t of positives.permanencia) {
-      const ids = new Set(runRules(t).map((f) => f.id));
+      // Gateamos explícitamente por tipo para reducir ruido
+      const ids = new Set(runRulesForType(t, "servicios").map((f) => f.id));
       expect(hasAnyId(ids, ["permanencia", "plan-permanencia"])).toBe(true);
+
+      // De yapa: sin gateo también debería disparar (más laxo)
+      const idsAll = new Set(runRules(t).map((f) => f.id));
+      expect(hasAnyId(idsAll, ["permanencia", "plan-permanencia"])).toBe(true);
     }
   });
 
-  it("proteccion-datos dispara (cesión/transferencia a terceros)", () => {
+  it("protección de datos: cesión/transferencia a terceros dispara", () => {
     for (const t of positives["proteccion-datos"]) {
-      const ids = new Set(runRules(t).map((f) => f.id));
-      // Aceptamos varias variantes de ID para no romper si el código usa otro nombre:
-      // - "proteccion-datos" (tu test original)
-      // - "servicios-datos-cesion" (nombre propuesto)
-      // - "datos-cesion" / "datos-transferencia" (posibles alternativas)
+      const ids = new Set(runRulesForType(t, "servicios").map((f) => f.id));
       const ok = hasAnyId(ids, [
         "proteccion-datos",
         "servicios-datos-cesion",
@@ -34,7 +36,6 @@ describe("smoke: reglas básicas", () => {
       ]);
       expect(ok).toBe(true);
       if (!ok) {
-        // Mensaje útil si falla:
         throw new Error(
           `No disparó datos/cesión en: ${t}\nIDs devueltos: ${Array.from(ids).join(", ")}`
         );
@@ -44,7 +45,7 @@ describe("smoke: reglas básicas", () => {
 
   it("negativos no disparan (básico)", () => {
     for (const t of negatives) {
-      const ids = new Set(runRules(t).map((f) => f.id));
+      const ids = new Set(runRulesForType(t, "servicios").map((f) => f.id));
       const none =
         !hasAnyId(ids, ["permanencia", "plan-permanencia"]) &&
         !hasAnyId(ids, [

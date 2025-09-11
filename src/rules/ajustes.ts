@@ -11,7 +11,7 @@ import { getLegalContext } from "../lib/legal";
 
 /** Disparadores comunes en cláusulas de actualización del canon/renta */
 const TRIGGER =
-  /\b(ajuste|reajuste|actualizaci[oó]n|actualizar|indexaci[oó]n|readecuaci[oó]n|revisi[oó]n|incremento|incrementar|aument(?:o|ar))\b/;
+  /\b(ajuste|reajuste|actualizaci[oó]n|actualizar|indexaci[oó]n|readecuaci[oó]n|revisi[oó]n|incremento|incrementar|aument(?:o|ar))\b/i;
 
 /** Detecta periodicidad y devuelve { months, index } anclando en el trigger. */
 function detectPeriodicityMonths(lower: string): { months: number; index: number } | null {
@@ -42,7 +42,7 @@ function detectPeriodicityMonths(lower: string): { months: number; index: number
   // 2.c) “para los restantes/siguientes/próximos X meses”
   m = /\b(para\s+los\s+restantes|durante\s+los\s+siguientes|durante\s+los\s+pr[oó]ximos|por\s+los\s+pr[oó]ximos)\s+(\d{1,2})\s*mes(?:es)?\b/.exec(around);
   if (m) return { months: parseInt(m[2], 10), index: idx };
-  m = /\b(para\s+los\s+restantes|durante\s+los\s+siguientes|durante\s+los\s+pr[oó]ximos|por\s+los\s+pr[óó]ximos)\s+[a-záéíóú]+\s*\((\d{1,2})\)\s*mes(?:es)?\b/.exec(around);
+  m = /\b(para\s+los\s+restantes|durante\s+los\s+siguientes|durante\s+los\s+pr[óó]ximos)\s+[a-záéíóú]+\s*\((\d{1,2})\)\s*mes(?:es)?\b/.exec(around);
   if (m) return { months: parseInt(m[1], 10), index: idx };
 
   // 3) "ajuste semestral/anual/mensual/bimestral/trimestral"
@@ -55,7 +55,7 @@ function detectPeriodicityMonths(lower: string): { months: number; index: number
   // 3.b) “primer/segundo semestre”, “1er/2do semestre”, “1º/2º semestre”
   if (/\b(primer|segundo|1(?:er)?|2(?:do)?)\s+semestre\b/.test(around)) return { months: 6, index: idx };
 
-  // 4) "cada semestre" (interpreta 6)
+  // 4) "cada semestre" → 6
   if (/\bcada\s+semestre\b/.test(around)) return { months: 6, index: idx };
 
   return null;
@@ -86,7 +86,6 @@ function detectPeriodicityFallback(lower: string): { months: number; index: numb
   if (/\bsemestral\b/.test(lower)) return { months: 6, index: lower.indexOf("semestral") };
   if (/\banual\b/.test(lower)) return { months: 12, index: lower.indexOf("anual") };
 
-  // “primer/segundo/1er/2do/1º/2º semestre” como pista de 6 meses
   const semIdx = lower.search(/\b(primer|segundo|1(?:er)?|2(?:do)?|1º|2º)\s+semestre\b/);
   if (semIdx !== -1) return { months: 6, index: semIdx };
 
@@ -109,10 +108,10 @@ export const ruleAjustePeriodicidad: Rule = (raw) => {
   const lower = raw.toLowerCase();
   const ctx = getLegalContext(raw);
 
-  // Solo Argentina (si viniera seteado otro país, no disparamos)
+  // Solo Argentina
   if ((ctx as any).country && (ctx as any).country !== "AR") return [];
 
-  // Régimen sin restricción → nada
+  // Régimen liberalizado (DNU) → no marcar
   if (ctx.regime === "DNU_70_2023") return [];
 
   // Primero intentamos con trigger; si no, fallback global
@@ -120,17 +119,17 @@ export const ruleAjustePeriodicidad: Rule = (raw) => {
   if (!periodicidad) periodicidad = detectPeriodicityFallback(lower);
   if (!periodicidad) return [];
 
-  // Señales
+  // Señales de contexto
   const talksLease = hasPriceTermsNear(lower, periodicidad.index, 300);
   const neg = hasNegationNear(lower, periodicidad.index, 180);
   const hasPct = hasExplicitPercentNear(lower, periodicidad.index);
 
-  // Incumplimiento
+  // Incumplimiento según régimen
   const incumpleLey27551 = ctx.regime === "LEY_27551" && periodicidad.months < 12;
   const incumpleLey27737 = ctx.regime === "LEY_27737" && periodicidad.months !== 6;
   if (!(incumpleLey27551 || incumpleLey27737)) return [];
 
-  // Confianza
+  // Confianza conservadora (evitar falsos positivos)
   const confidence = score([talksLease, true, hasPct, !neg], [1.3, 1.0, 1.0, 0.8]);
   if (confidence < 0.6) return [];
 
@@ -145,7 +144,7 @@ export const ruleAjustePeriodicidad: Rule = (raw) => {
 
   return [
     makeFinding({
-      id: "ajuste-periodicidad",
+      id: "alquiler-ajuste-periodicidad", // ⬅️ alinea con el registro/whitelist
       title: "Periodicidad de ajuste no permitida",
       severity,
       description:

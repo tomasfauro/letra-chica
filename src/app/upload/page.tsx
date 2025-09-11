@@ -1,18 +1,40 @@
+// src/app/upload/page.tsx
 "use client";
+
 import ReportButton from "@/components/ReportButton";
-import { useCallback, useRef, useState } from "react";
 import { FindingsList } from "@/components/FindingsList";
 import type { Finding } from "@/rules";
-import { Upload, FileText, X, Info, AlertTriangle } from "lucide-react";
+import { Upload, FileText, X, Info, AlertTriangle, Tag } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+
+/** === tipos que matchean con /api/upload actualizado === */
+type ContractType = "alquiler" | "servicios" | "laboral" | "bancario" | "otro";
+type Classification = {
+  type: ContractType;
+  confidence: number;
+  reasons: string[];
+};
 
 type ApiOk = {
   ok: true;
-  meta: { filename: string; sizeMB: number; nPages: number; likelyScanned?: boolean };
+  meta: {
+    filename: string;
+    sizeMB: number;
+    kind: "pdf-text" | "pdf-ocr" | "docx" | "txt";
+    paragraphCount: number;
+    length: number;
+    nPages?: number;
+    notes?: string[];
+  };
+  classification: Classification;
   findings: Finding[];
   excerpt: string;
+  firstParagraphs?: string[];
 };
+
 type ApiErr = { error: string };
 type ApiResponse = ApiOk | ApiErr;
+/** ======================================================= */
 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -26,37 +48,56 @@ export default function UploadPage() {
     setErr(null);
     setResp(null);
     if (f) {
-      const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
-      if (!isPdf) { setErr("Solo se admite PDF."); setFile(null); return; }
+      const isPdfOrDocx =
+        f.type === "application/pdf" ||
+        f.name.toLowerCase().endsWith(".pdf") ||
+        f.name.toLowerCase().endsWith(".docx");
+      if (!isPdfOrDocx) {
+        setErr("Formato admitido: PDF o DOCX.");
+        setFile(null);
+        return;
+      }
       const sizeMB = f.size / (1024 * 1024);
-      if (sizeMB > 20) { setErr("PDF demasiado grande (>20MB)."); setFile(null); return; }
+      if (sizeMB > 20) {
+        setErr("Archivo demasiado grande (>20MB).");
+        setFile(null);
+        return;
+      }
     }
     setFile(f);
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     setDragging(false);
     onFile(e.dataTransfer.files?.[0] ?? null);
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     setDragging(true);
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     setDragging(false);
   }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErr(null); setResp(null);
-    if (!file) { setErr("Seleccioná un PDF."); return; }
+    setErr(null);
+    setResp(null);
+    if (!file) {
+      setErr("Seleccioná un PDF o DOCX.");
+      return;
+    }
     setLoading(true);
     try {
-      const fd = new FormData(); fd.append("file", file);
+      const fd = new FormData();
+      fd.append("file", file);
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const json = (await res.json()) as ApiResponse;
       if (!res.ok) setErr((json as any).error ?? "Error en el análisis");
@@ -69,17 +110,29 @@ export default function UploadPage() {
   };
 
   const onReset = () => {
-    setFile(null); setResp(null); setErr(null);
+    setFile(null);
+    setResp(null);
+    setErr(null);
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  const findingsCount = resp && "ok" in resp && resp.ok ? resp.findings.length : 0;
+  const findingsCount =
+    resp && "ok" in resp && resp.ok ? resp.findings.length : 0;
+  const ok = resp && "ok" in resp && resp.ok ? (resp as ApiOk) : null;
+
+  // <<< NUEVO: limpiamos los prefijos [título]/[inicio]/[cuerpo]/[final] >>>
+  const cleanReasons =
+    ok?.classification.reasons
+      ?.map((r) => r.replace(/^\[[^\]]+\]\s*/u, "")) // quita "[xxx] "
+      .filter(Boolean) ?? [];
 
   return (
     <main className="min-h-[calc(100vh-120px)] bg-gray-50">
       <section className="max-w-6xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-bold text-gray-900">Analizar contrato (PDF)</h1>
-        <p className="text-sm text-neutral-600">Análisis informativo; no constituye asesoría legal.</p>
+        <h1 className="text-2xl font-bold text-gray-900">Analizar contrato</h1>
+        <p className="text-sm text-neutral-600">
+          Análisis informativo; no constituye asesoría legal.
+        </p>
 
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
           {/* Columna principal */}
@@ -94,15 +147,17 @@ export default function UploadPage() {
                 onDragLeave={handleDragLeave}
                 className={[
                   "rounded-xl border-2 border-dashed p-6 transition-colors",
-                  dragging ? "border-blue-400 bg-blue-50" : "border-neutral-200 hover:bg-neutral-50",
+                  dragging
+                    ? "border-blue-400 bg-blue-50"
+                    : "border-neutral-200 hover:bg-neutral-50",
                 ].join(" ")}
-                aria-label="Arrastrá y soltá tu PDF"
+                aria-label="Arrastrá y soltá tu PDF/DOCX"
               >
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <Upload className="text-blue-600" size={20} />
                     <div className="text-sm text-neutral-700">
-                      Arrastrá el PDF acá o{" "}
+                      Arrastrá el archivo acá o{" "}
                       <button
                         type="button"
                         onClick={() => inputRef.current?.click()}
@@ -112,7 +167,7 @@ export default function UploadPage() {
                       </button>
                       .
                       <div className="text-xs text-neutral-500 mt-1">
-                        Formato admitido: .pdf · Máx 20&nbsp;MB
+                        Formatos admitidos: .pdf / .docx · Máx 20&nbsp;MB
                       </div>
                     </div>
                   </div>
@@ -120,7 +175,7 @@ export default function UploadPage() {
                   <input
                     ref={inputRef}
                     type="file"
-                    accept="application/pdf"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     onChange={(e) => onFile(e.target.files?.[0] ?? null)}
                     className="hidden"
                   />
@@ -168,70 +223,98 @@ export default function UploadPage() {
             </form>
 
             {/* Resultado */}
-            {resp && "ok" in resp && resp.ok && (
+            {ok && (
               <div className="border-t p-6 space-y-6">
                 {/* Resumen compacto */}
-                <div className="rounded-xl border bg-neutral-50 p-4">
-                  <div className="grid sm:grid-cols-4 gap-4 text-sm">
+                <div className="rounded-xl border bg-neutral-50 p-4 space-y-3">
+                  {/* Tipo detectado */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Tag size={16} className="text-indigo-600" />
                     <div>
-                      <div className="text-neutral-500">Archivo</div>
-                      <div className="font-medium truncate">{resp.meta.filename}</div>
-                    </div>
-                    <div>
-                      <div className="text-neutral-500">Tamaño</div>
-                      <div className="font-medium">{resp.meta.sizeMB} MB</div>
-                    </div>
-                    <div>
-                      <div className="text-neutral-500">Páginas</div>
-                      <div className="font-medium">{resp.meta.nPages}</div>
-                    </div>
-                    <div className="flex items-center">
-                      <span
-                        className={[
-                          "inline-block rounded-full px-3 py-1 text-xs font-bold",
-                          resp.findings.length === 0
-                            ? "bg-green-100 text-green-700"
-                            : "bg-yellow-100 text-yellow-800",
-                        ].join(" ")}
-                      >
-                        Hallazgos: {findingsCount}
+                      Tipo detectado:{" "}
+                      <b className="uppercase">{ok.classification.type}</b>{" "}
+                      <span className="text-neutral-600">
+                        ({ok.classification.confidence})
                       </span>
                     </div>
                   </div>
 
-                  {resp.meta.likelyScanned && (
-                    <div className="mt-3 border-l-4 border-amber-400 bg-amber-50 text-amber-900 px-3 py-2 rounded">
-                      El PDF parece escaneado (texto muy corto). Un OCR podría mejorar el análisis.
+                  {/* Razones (limpias) */}
+                  {cleanReasons.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {cleanReasons.slice(0, 8).map((r, i) => (
+                        <span
+                          key={`${r}-${i}`}
+                          className="inline-flex items-center rounded-full border px-2.5 py-1 text-xs bg-white text-neutral-700"
+                          title={r}
+                        >
+                          {r}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {/* Metas del archivo */}
+                  <div className="grid sm:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <div className="text-neutral-500">Archivo</div>
+                      <div className="font-medium truncate">
+                        {ok.meta.filename}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-neutral-500">Tamaño</div>
+                      <div className="font-medium">{ok.meta.sizeMB} MB</div>
+                    </div>
+                    <div>
+                      <div className="text-neutral-500">Formato</div>
+                      <div className="font-medium">{ok.meta.kind}</div>
+                    </div>
+                    <div>
+                      <div className="text-neutral-500">Bloques (párrafos)</div>
+                      <div className="font-medium">
+                        {ok.meta.paragraphCount}
+                      </div>
+                    </div>
+                  </div>
+
+                  {(ok.meta.kind === "pdf-ocr" || ok.meta.length < 50) && (
+                    <div className="mt-1 border-l-4 border-amber-400 bg-amber-50 text-amber-900 px-3 py-2 rounded">
+                      El documento parece escaneado o con poco texto. Un OCR o
+                      PDF con texto mejora el análisis.
                     </div>
                   )}
                 </div>
 
-{/* Hallazgos */}
-<div id="report-root">
-  <FindingsList items={resp.findings} />
-</div>
+                {/* Hallazgos */}
+                <div id="report-root">
+                  <h2 className="font-semibold mb-2">
+                    Hallazgos ({findingsCount})
+                  </h2>
+                  <FindingsList items={ok.findings} />
+                </div>
 
-               <div className="flex justify-end gap-3">
-  <button
-    type="button"
-    onClick={onReset}
-    className="px-3 py-2 rounded border bg-white hover:bg-neutral-50 text-sm"
-  >
-    Subir otro contrato
-  </button>
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={onReset}
+                    className="px-3 py-2 rounded border bg-white hover:bg-neutral-50 text-sm"
+                  >
+                    Subir otro contrato
+                  </button>
 
-<ReportButton
-  findings={resp.findings}
-  fileName={`informe-letrachica-${resp.meta.filename || "analisis"}.pdf`}
-  meta={{
-    filename: resp.meta.filename,
-    pages: resp.meta.nPages,
-    sizeMB: resp.meta.sizeMB,
-  }}
-/>
-
-</div>
-
+                  <ReportButton
+                    findings={ok.findings}
+                    fileName={`informe-letrachica-${
+                      ok.meta.filename || "analisis"
+                    }.pdf`}
+                    meta={{
+                      filename: ok.meta.filename,
+                      pages: ok.meta.nPages ?? ok.meta.paragraphCount,
+                      sizeMB: ok.meta.sizeMB,
+                    }}
+                  />
+                </div>
               </div>
             )}
           </div>

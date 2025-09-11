@@ -1,5 +1,5 @@
 // src/rules/utils.ts
-import type { Finding } from "./types";
+import type { Finding, Severity } from "./types";
 
 /* ========================================================================== */
 /* Normalización y helpers                                                    */
@@ -29,20 +29,27 @@ export function extractEvidence(text: string, index: number, window = 300): stri
 /** Toma una sola oración (., !, ?) alrededor del índice. Útil para evidence concisa. */
 export function extractSentence(text: string, index: number, fallbackWindow = 220): string {
   if (!text) return "";
-  const leftDot = Math.max(
+  // límites izquierdos (incluye signos iniciales y \n)
+  const lefts = [
     text.lastIndexOf(". ", index),
     text.lastIndexOf("! ", index),
-    text.lastIndexOf("? ", index)
-  );
-  const L = leftDot >= 0 ? leftDot + 2 : Math.max(0, index - fallbackWindow);
+    text.lastIndexOf("? ", index),
+    text.lastIndexOf("¡", index),
+    text.lastIndexOf("¿", index),
+    text.lastIndexOf("\n", index),
+  ].filter((x) => x >= 0);
+  const L = (lefts.length ? Math.max(...lefts) : Math.max(0, index - fallbackWindow)) + 1;
 
-  const rightDot = text.indexOf(". ", index);
-  const rightEx = text.indexOf("! ", index);
-  const rightQ = text.indexOf("? ", index);
-  const rights = [rightDot, rightEx, rightQ].filter((x) => x >= 0);
+  // límites derechos
+  const rights = [
+    text.indexOf(". ", index),
+    text.indexOf("! ", index),
+    text.indexOf("? ", index),
+    text.indexOf("\n", index),
+  ].filter((x) => x >= 0);
   const R = rights.length ? Math.min(...rights) + 1 : Math.min(text.length, index + fallbackWindow);
 
-  return text.slice(L, Math.min(R + 1, text.length)).trim();
+  return text.slice(Math.max(0, L - 1), Math.min(R + 1, text.length)).trim();
 }
 
 /** Elige la mejor evidencia: prioriza oración si es suficientemente larga; si no, párrafo. */
@@ -59,24 +66,30 @@ export function makeFinding(opts: {
   severity: Finding["severity"];
   description: string;
   text: string;     // texto ORIGINAL (con mayúsculas/acentos)
-  index: number;    // posición del match calculada sobre lower
+  index: number;    // posición del match calculada sobre el texto original/lower mapeado
   window?: number;
   meta?: Record<string, unknown>;
   bullets?: string[];
   keywords?: string[];
-  preferSentenceEvidence?: boolean; // NUEVO: true = oración; false = párrafo
+  preferSentenceEvidence?: boolean; // true = oración; false = párrafo
 }): Finding {
   const {
     id, title, severity, description, text, index, window, meta, bullets, keywords,
     preferSentenceEvidence = true,
   } = opts;
-  const evidence = preferSentenceEvidence ? bestEvidence(text, index) : extractEvidence(text, index, window);
+
+  const evidence = preferSentenceEvidence
+    ? bestEvidence(text, index)
+    : extractEvidence(text, index, window);
+
   return {
     id,
     title,
     severity,
     description,
     evidence,
+    index,     // ⬅️ importante para mapOffsets(...)
+    window,
     meta: {
       ...(meta ?? {}),
       ...(bullets ? { bullets } : {}),
@@ -99,7 +112,7 @@ const PRICE_TERMS = /\b(renta|canon|alquiler|precio|locaci[oó]n|arrendamiento)\
 const LEGAL_ANCHORS: RegExp[] = [
   /\bart[íi]culo?\b/i,
   /\bley\b/i,
-  /\b(lct|ley\s*20\.?744|27\.?742)\b/i,
+  /\b(lct|ley\s*20\.?744|27\.?742|27\.?555)\b/i,
   /\b92\s*bis\b/i,
   /\b245\b/i,
 ];
@@ -114,12 +127,19 @@ export function sliceAround(text: string, index: number, win = 200) {
   return text.slice(start, end);
 }
 
+/** Quita flag 'g' para evitar lastIndex compartido */
+function withoutGlobal(rx: RegExp) {
+  const flags = rx.flags.replace(/g/g, "");
+  return new RegExp(rx.source, flags);
+}
+
 /** ¿Existe r2 cerca de r1 dentro de 'win' caracteres? */
 export function near(text: string, r1: RegExp, r2: RegExp, win = 180): boolean {
-  const m = r1.exec(text);
-  if (!m) return false;
-  const ctx = sliceAround(text, m.index!, win);
-  return r2.test(ctx);
+  const safeR1 = withoutGlobal(r1);
+  const m = text.search(safeR1);
+  if (m < 0) return false;
+  const ctx = sliceAround(text, m, win);
+  return withoutGlobal(r2).test(ctx);
 }
 
 /** ¿Aparece negación cerca de index? */
@@ -146,7 +166,7 @@ export function hasRiskNumbersNear(text: string, index: number, win = 220) {
   return RISK_NUMBERS.test(ctx);
 }
 
-/** Scoring simple 0–1 sumando evidencias (lo que ya tenías) */
+/** Scoring simple 0–1 sumando evidencias */
 export function score(parts: Array<boolean | number>, weights?: number[]) {
   let s = 0, w = 0;
   parts.forEach((p, i) => {
@@ -157,14 +177,14 @@ export function score(parts: Array<boolean | number>, weights?: number[]) {
   return w > 0 ? +(s / w).toFixed(2) : 0;
 }
 
-/** Scoring compuesto estándar (NUEVO): base + anclas + números − negación + extraBoost */
+/** Scoring compuesto estándar: base + anclas + números − negación + extraBoost */
 export function computeScore(opts: {
   matched: boolean;       // hubo match principal
   text: string;           // texto ORIGINAL
-  index: number;          // índice del match (sobre lower pero mapeado a raw si usás alignIndex)
-  extraBoost?: number;    // +0..+0.4 aprox por riesgos específicos de la regla
+  index: number;          // índice del match
+  extraBoost?: number;    // +0..+0.4 aprox por riesgos específicos
   negationPenalty?: number; // default 0.2
-}): { confidence: number; severity: "low" | "medium" | "high" } {
+}): { confidence: number; severity: Severity } {
   const { matched, text, index, extraBoost = 0, negationPenalty = 0.2 } = opts;
   if (!matched) return { confidence: 0, severity: "low" };
 
@@ -175,7 +195,7 @@ export function computeScore(opts: {
   if (hasNegationNear(text, index)) conf -= negationPenalty;
 
   conf = Math.max(0, Math.min(1, conf));
-  const severity = conf >= 0.8 ? "high" : conf >= 0.6 ? "medium" : "low";
+  const severity: Severity = conf >= 0.8 ? "high" : conf >= 0.6 ? "medium" : "low";
   return { confidence: +conf.toFixed(2), severity };
 }
 
@@ -197,4 +217,11 @@ export function alignIndex(
   const m = rx.exec(rawSlice);
   if (!m) return lowerIndex;
   return start + m.index;
+}
+
+/** Evidencia garantizada si sólo vino index */
+export function ensureEvidence(f: Finding, text: string): Finding {
+  if (f.evidence || f.index == null) return f;
+  const win = f.window ?? 300;
+  return { ...f, evidence: extractEvidence(text, f.index, win) };
 }

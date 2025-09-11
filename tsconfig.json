@@ -16,6 +16,8 @@
     "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
+      "@rules/*": ["src/rules/*"],
+      "@lib/*": ["src/lib/*"],
       "@/*": ["src/*"]
     },
     "types": ["node"],
@@ -23,10 +25,6 @@
     "plugins": [{ "name": "next" }],
     "typeRoots": ["src/types", "./node_modules/@types"]
   },
-  "include": [
-    "next-env.d.ts",
-    "src/**/*",
-    ".next/types/**/*.ts"
-  ],
+  "include": ["next-env.d.ts", "src/**/*", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]
 }

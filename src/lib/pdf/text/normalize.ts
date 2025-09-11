@@ -1,20 +1,33 @@
-// src/lib/text/normalize.ts
-/**
- * Normaliza texto de PDF:
- * - \r -> \n ; \u00A0 -> ' '
- * - Colapsa espacios antes de \n
- * - Máx. dos saltos consecutivos
- * - Remueve numeración de cláusulas típica si contamina (opcional)
- */
+// src/lib/pdf/text/normalize.ts
 export function normalizeText(raw: string): string {
-  const base = (raw ?? "")
-    .replace(/\r/g, "\n")
-    .replace(/\u00A0/g, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  if (!raw) return "";
 
-  // Remover numeraciones tipo "1.1. Cláusula ..." al inicio de líneas, suave
-  const cleaned = base.replace(/^\s*(?:\d+(?:\.\d+)*[.)-]\s*)/gm, "");
-  return cleaned;
+  let t = raw;
+
+  // Saltos de línea normalizados
+  t = t.replace(/\r\n?/g, "\n");
+
+  // De-hyphenation: “pa-\nlabra” → “palabra”
+  t = t.replace(/([a-záéíóúñ])-\n([a-záéíóúñ])/gi, "$1$2");
+
+  // Unwrap de líneas: une líneas si no terminan en puntuación fuerte
+  // (conservador para no romper listas)
+  t = t.replace(/([^\.\!\?\:;])\n(?!\n)/g, "$1 ");
+
+  // Normaliza bullets simples a guiones
+  t = t.replace(/^[\s•·●]\s*/gm, "- ");
+
+  // Colapsa espacios múltiples
+  t = t.replace(/[ \t]{2,}/g, " ");
+
+  // Quita espacios antes de comas
+  t = t.replace(/ \,(?=\S)/g, ",");
+
+  // Espacios no separables → espacio normal
+  t = t.replace(/\u00A0/g, " ");
+
+  // Recorta extremos y limpia saltos extra al final
+  t = t.trim();
+
+  return t;
 }
