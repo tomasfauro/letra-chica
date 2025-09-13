@@ -4,6 +4,7 @@ import { normalizeDocument } from "@/core/normalize";
 import { classifyContract } from "@/core/classify";
 import { runRulesForType, selectedRuleIdsForType } from "@/rules";  // ⬅️ ahora importamos selectedRuleIdsForType
 import { ensureEvidence } from "@/rules/utils";
+import { mapRuleIdToV2, mergeFindings, adjustDepositEvidence, adjustEvidenceToHeadingRange, bumpDepositSeverityWithGuarantor } from "@/lib/labels";
 
 export const runtime = "nodejs";     // OCR/parse → requiere Node
 export const dynamic = "force-dynamic";
@@ -96,14 +97,26 @@ export async function POST(req: Request) {
     const selectedRuleIds = selectedRuleIdsForType(classification.type);
     console.log("[rules] selected (ids):", selectedRuleIds);
 
-    // 3) Gateo: ejecutar reglas del tipo detectado
+    // 3) Gateo: ejecutar reglas del tipo detectado sobre el texto completo
     //    En debug bajamos el threshold a 0.5 para ver más señales mientras calibrás confidence
-    const rawFindings = debug
+    const fullFindings = debug
       ? runRulesForType(normalized.text, classification.type, 0.5)
       : runRulesForType(normalized.text, classification.type);
 
+    // 3.b) Ejecutar por párrafo para mayor tolerancia a saltos de línea
+    let perParagraph: any[] = [];
+    try {
+      perParagraph = (normalized.paragraphs || []).flatMap((p) =>
+        debug
+          ? runRulesForType(p, classification.type, 0.5)
+          : runRulesForType(p, classification.type)
+      );
+    } catch {}
+
+    const rawFindings = mergeFindings(fullFindings as any, perParagraph as any);
+
     // 4) Evidencia garantizada + offsets mapeados para UI
-    const findings = rawFindings.map((f: any) => {
+  const findingsMapped = rawFindings.map((f: any) => {
       const withEv = ensureEvidence(f, normalized.text);
       if (withEv.index != null) {
         const { paragraphIndex, localIndex } = normalized.mapOffsets(withEv.index);
@@ -121,7 +134,55 @@ export async function POST(req: Request) {
           contractTypeConfidence: classification.confidence,
         };
       }
+      // Mapear IDs a etiquetas v2 para UI; guardar original en meta
+      const originalId = withEv.id;
+      const v2Id = mapRuleIdToV2(originalId);
+      withEv.meta = { ...withEv.meta, originalId };
+      withEv.id = v2Id;
       return withEv;
+    });
+
+  // 4.b) Deduplicar por etiqueta canónica (v2) manteniendo mayor severidad/confianza
+    let findings = mergeFindings(findingsMapped as any, []);
+
+    // 4.c) Evidence alignment by rule
+    findings = findings.map((f: any) => {
+      if (f.id === "alquiler-deposito") {
+        return adjustDepositEvidence(normalized.text, f);
+      }
+      if (f.id === "alquiler-garante-solidario") {
+        return adjustEvidenceToHeadingRange(normalized.text, f, /garante|fiador|codeudor|solidari/i);
+      }
+      if (f.id === "alquiler-jurisdiccion") {
+        return adjustEvidenceToHeadingRange(normalized.text, f, /jurisdicci[oó]n|competencia|tribunales|fuero/i);
+      }
+      if (f.id === "alquiler-inconsistencia-temporaria") {
+        return adjustEvidenceToHeadingRange(normalized.text, f, /objeto|destino|duraci[oó]n|plazo/i);
+      }
+      return f;
+    });
+
+  // 4.d) If a strong guarantor exists, bump depósito severity
+  findings = bumpDepositSeverityWithGuarantor(findings as any);
+
+  // 4.e) Fallback: if any finding lacks evidence, show at least nearest clause heading line
+    const headingLineRx = new RegExp(
+      String.raw`(?:^|\n)\s*(?:cl[aá]usula|art[ií]culo|cap[ií]tulo|[ivxlcdm]+\.?|primera|segunda|tercera|cuarta|quinta|sexta|s[eé]ptima|septima|octava|novena|d[eé]cima)[^\n]{0,160}$`,
+      "mi"
+    );
+    findings = findings.map((f: any) => {
+      if (f.evidence && String(f.evidence).trim().length > 0) return f;
+      const idx = typeof f.index === "number" ? f.index : 0;
+      const win = 1500;
+      const start = Math.max(0, idx - win);
+      const slice = normalized.text.slice(start, idx);
+      const matches = Array.from(slice.matchAll(headingLineRx));
+      const last = matches.length > 0 ? matches[matches.length - 1] : null;
+      if (last) {
+        const heading = last[0].trim();
+        if (heading.length > 0) return { ...f, evidence: heading };
+      }
+      return f;
     });
 
     // 5) Armar payload con telemetría útil para la UI y para inspección rápida
@@ -137,7 +198,7 @@ export async function POST(req: Request) {
         paragraphCount,
       },
       classification,                 // tipo + confidence + reasons/features
-      findings,
+  findings,
       // Para inspección rápida (mantenelo corto)
       excerpt: normalized.text.slice(0, 1000),
       firstParagraphs: normalized.paragraphs.slice(0, 8),
@@ -146,6 +207,9 @@ export async function POST(req: Request) {
         debugMode: debug,
         selectedRuleIds,
         selectedRuleCount: selectedRuleIds.length,
+        fullFindingsCount: (fullFindings as any[]).length,
+        perParagraphCount: (perParagraph as any[]).length,
+        mergedCount: findings.length,
         // si no hay reglas seleccionadas, es whitelist/tipo; si hay y da 0, es regex/normalización
         hint:
           selectedRuleIds.length === 0
@@ -153,6 +217,7 @@ export async function POST(req: Request) {
             : findings.length === 0
               ? "Se ejecutaron reglas pero no encontraron coincidencias: revisá normalización/regex/OCR."
               : "OK: hubo hallazgos.",
+        sampleIds: findings.slice(0, 8).map((f: any) => ({ id: f.id, originalId: f?.meta?.originalId })),
       },
     };
 

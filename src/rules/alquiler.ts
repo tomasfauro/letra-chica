@@ -28,8 +28,9 @@ export const ruleAlquilerFianza: Rule = (raw) => {
   const lower = raw.toLowerCase();
   const ctxLegal = getLegalContext(raw);
 
-  // Solo tiene sentido en AR; para ES ya tratás depósitos aparte si añadís set ES
-  if (ctxLegal.country !== "AR") return [];
+  // Solo tiene sentido en AR; si el país es UNKNOWN, asumimos AR (dataset local)
+  const country = ctxLegal.country === "UNKNOWN" ? "AR" : ctxLegal.country;
+  if (country !== "AR") return [];
 
   const m = /\b(fianza|dep[oó]sito|garant[ií]a)\b/.exec(lower);
   if (!m) return [];
@@ -49,7 +50,9 @@ export const ruleAlquilerFianza: Rule = (raw) => {
   const mentionsAmount =
     /\b(\d{1,2})\s*mes(?:es)?\b/.test(around) ||
     /\b([a-záéíóú]+)\s*\(\d{1,2}\)\s*mes(?:es)?\b/.test(around) ||
-    /\bequivalente\s+al\s+primer\s+mes\b/.test(around);
+    /\bequivalente\s+al\s+primer\s+mes\b/.test(around) ||
+    /\$\s?\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})?/.test(around) || // monto en pesos con puntos/comas
+    /\bcuotas?\b/.test(around);                                       // pago en cuotas
 
   const confidence = score([lease, mentionsAmount, !neg], [1.2, 1.0, 0.8]);
   if (confidence < 0.6) return [];
@@ -64,14 +67,14 @@ export const ruleAlquilerFianza: Rule = (raw) => {
       title: "Cláusula de fianza/depósito",
       severity,
       description:
-        "Se menciona fianza/depósito. Verificá que el total de garantías no supere un (1) mes y cómo se devuelve.",
+        "Se menciona fianza/depósito. Verificá que el total de garantías no supere un (1) mes, el monto/cuotas y cómo se devuelve.",
       text: raw,
       index: idx,
       window: 260,
       meta: {
         type: "legal",
         confidence,
-        country: ctxLegal.country,
+  country,
         regime: ctxLegal.regime,
         bullets: [
           "Verificá el monto frente al límite legal permitido.",
@@ -91,8 +94,9 @@ export const ruleAlquilerDuracion: Rule = (raw) => {
   const lower = raw.toLowerCase();
   const ctxLegal = getLegalContext(raw);
 
-  // Aplica principalmente en AR
-  if (ctxLegal.country !== "AR") return [];
+  // Aplica principalmente en AR; UNKNOWN lo tratamos como AR
+  const country = ctxLegal.country === "UNKNOWN" ? "AR" : ctxLegal.country;
+  if (country !== "AR") return [];
 
   const m = /\b(duraci[oó]n|vigencia|pr[oó]rroga|reconducci[oó]n)\b/.exec(lower);
   if (!m) return [];
@@ -124,7 +128,7 @@ export const ruleAlquilerDuracion: Rule = (raw) => {
       meta: {
         type: "legal",
         confidence,
-        country: ctxLegal.country,
+  country,
         regime: ctxLegal.regime,
         bullets: [
           "Controlá que el plazo no sea menor al legal (si aplica).",
@@ -143,8 +147,8 @@ export const ruleAlquilerDuracion: Rule = (raw) => {
 export const ruleAlquilerDesistimiento: Rule = (raw) => {
   const lower = raw.toLowerCase();
   const ctxLegal = getLegalContext(raw);
-
-  if (ctxLegal.country !== "AR") return [];
+  const country = ctxLegal.country === "UNKNOWN" ? "AR" : ctxLegal.country;
+  if (country !== "AR") return [];
 
   const m =
     /\b(desistim|resoluci[oó]n|rescisi[oó]n|preaviso|penalizaci[oó]n|multa|indemnizaci[oó]n)\b/.exec(
@@ -179,7 +183,7 @@ export const ruleAlquilerDesistimiento: Rule = (raw) => {
       meta: {
         type: "legal",
         confidence,
-        country: ctxLegal.country,
+  country,
         regime: ctxLegal.regime,
         bullets: [
           "Verificá si hay obligación de preaviso y de cuántos días.",
@@ -198,8 +202,8 @@ export const ruleAlquilerDesistimiento: Rule = (raw) => {
 export const ruleAlquilerGastos: Rule = (raw) => {
   const lower = raw.toLowerCase();
   const ctxLegal = getLegalContext(raw);
-
-  if (ctxLegal.country !== "AR") return [];
+  const country = ctxLegal.country === "UNKNOWN" ? "AR" : ctxLegal.country;
+  if (country !== "AR") return [];
 
   const m =
     /\b(expensas?|extraordinari|suministros?|agua|luz|gas|comunidad|consorcio|impuesto(?:s)?|abl|municipal(?:es)?)\b/.exec(
@@ -254,7 +258,7 @@ export const ruleAlquilerGastos: Rule = (raw) => {
       meta: {
         type: "legal",
         confidence,
-        country: ctxLegal.country,
+  country,
         regime: ctxLegal.regime,
         bullets: [
           "Chequeá si te cargan expensas extraordinarias (normalmente corresponden al dueño).",

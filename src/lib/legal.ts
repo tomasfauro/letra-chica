@@ -92,9 +92,9 @@ function detectContractType(text: string): ContractType {
   if (/\bcomercial\b|\blocaci[oó]n\s+comercial\b|\blocal\b|\boficina\b|\bindustrial\b/.test(lower)) {
     return "comercial";
   }
-  if (/\bvivienda (habitual|permanente)\b/.test(lower)) {
-    return "permanente";
-  }
+if (/\b(locaci[oó]n|alquiler|locador(?:a)?|locatari[oa]|inmueble|vivienda|canon)\b/i.test(lower)) {
+  return "permanente";
+}
   return "desconocido";
 }
 

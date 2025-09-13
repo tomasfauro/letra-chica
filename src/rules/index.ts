@@ -4,11 +4,16 @@ import type { Finding, Rule, RuleEntry, RuleGroup } from "./types";
 
 // Alquiler
 import {
+  ruleAlquilerFianza,
   ruleAlquilerDuracion,
   ruleAlquilerDesistimiento,
   ruleAlquilerGastos,
 } from "./alquiler";
 import { ruleAlquilerIndexacion } from "./indexacion";
+import { ruleAlquilerClausulaPenal } from "./alquiler/clausula_penal";
+import { ruleAlquilerGaranteSolidario } from "./alquiler/garante_solidario";
+import { ruleAlquilerJurisdiccion } from "./alquiler/jurisdiccion";
+import { ruleAlquilerInconsistenciaTemporaria } from "./alquiler/inconsistencia_temporaria";
 
 // Servicios / Consumo
 import {
@@ -20,12 +25,12 @@ import {
 import { ruleNotificacionesAbusivas } from "./notificaciones";
 
 // Bancario / general financieras
-import { ruleInteresesPunitorios } from "./intereses";
+import { ruleInteresesPunitorios } from "./bancario/intereses_punitorios";
 import { ruleMonedaExtranjera } from "./moneda";
 
 // “Duras” por ley (alquiler AR)
 import { rulePlazoMinimo } from "./plazoMinimo";
-import { ruleDepositoUnMes } from "./deposito";
+import { ruleDepositoUnMes, ruleDepositoMultiplesMeses } from "./deposito";
 import { ruleAjustePeriodicidad } from "./ajustes";
 
 // Laboral
@@ -42,11 +47,17 @@ export const ALL_RULES: RuleEntry[] = [
   // --------- ALQUILER (AR) ---------
   { id: "alquiler-plazo-minimo", group: "alquiler", run: rulePlazoMinimo },
   { id: "alquiler-deposito-un-mes", group: "alquiler", run: ruleDepositoUnMes },
+  { id: "alquiler-deposito-multiples-meses", group: "alquiler", run: ruleDepositoMultiplesMeses },
   { id: "alquiler-ajuste-periodicidad", group: "alquiler", run: ruleAjustePeriodicidad },
+  { id: "alquiler-fianza", group: "alquiler", run: ruleAlquilerFianza },
   { id: "alquiler-duracion", group: "alquiler", run: ruleAlquilerDuracion },
   { id: "alquiler-desistimiento", group: "alquiler", run: ruleAlquilerDesistimiento },
   { id: "alquiler-gastos", group: "alquiler", run: ruleAlquilerGastos },
   { id: "alquiler-indexacion", group: "alquiler", run: ruleAlquilerIndexacion },
+  { id: "alquiler-clausula-penal", group: "alquiler", run: ruleAlquilerClausulaPenal },
+  { id: "alquiler-garante-solidario", group: "alquiler", run: ruleAlquilerGaranteSolidario },
+  { id: "alquiler-jurisdiccion", group: "alquiler", run: ruleAlquilerJurisdiccion },
+  { id: "alquiler-inconsistencia-temporaria", group: "alquiler", run: ruleAlquilerInconsistenciaTemporaria },
   { id: "debug-canary-alquiler", group: "alquiler", run: ruleDebugCanaryAlquiler }, // ← NUEVA
 
   // --------- SERVICIOS / CONSUMO ---------

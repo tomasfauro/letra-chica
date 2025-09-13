@@ -11,13 +11,13 @@ import { getLegalContext } from "../lib/legal";
 
 /** Disparador amplio de actualización/indexación/ajuste (sin decidir periodicidad). */
 const TRIGGER =
-  /\b(ajuste|reajuste|actualizaci[oó]n|actualizar|indexaci[oó]n|readecuaci[oó]n|revisi[oó]n|variaci[oó]n|incremento|incrementar|aument(?:o|ar))\b/;
+  /\b(ajuste|reajuste|actualizaci[oó]n|actualizar|indexaci[oó]n|readecuaci[oó]n|revisi[oó]n|variaci[oó]n|incremento|incrementar|aument(?:o|ar)|recalcular|reca?lculo|[íi]ndice)\b/;
 
 /** Señales típicas de “índice de referencia” cerca del disparador. */
 function hasIndexNear(lower: string, index: number): boolean {
   const ctx = sliceAround(lower, index, 260);
   // Índices comunes + fuentes típicas + mención expresa de “índice”
-  return /\b(ipc|uvas?|inflaci[oó]n|icl|ripte|coef(?:iciente)?|casa\s+propia|salarios?|[íi]ndice|bcra|indec)\b/.test(
+  return /\b(ipc|uvas?|inflaci[oó]n|icl|ripte|coef(?:iciente)?|casa\s+propia|salarios?|[íi]ndice|bcra|indec|art\.?\s*14|27\.?551)\b/.test(
     ctx
   );
 }

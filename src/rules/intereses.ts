@@ -15,7 +15,8 @@ import { getLegalContext } from "../lib/legal";
 export const ruleInteresesPunitorios: Rule = (raw) => {
   const lower = raw.toLowerCase();
   const ctx = getLegalContext(raw);
-  if (ctx.country !== "AR") return [];
+  // App principal: AR. Si país es UNKNOWN, asumimos AR para no perder señales.
+  if (ctx.country !== "AR" && ctx.country !== "UNKNOWN") return [];
 
   // Disparador base
   const m = /\binter[eé]s(?:es)?\b/.exec(lower);

@@ -6,12 +6,17 @@ export const ACTIVE_RULE_IDS: Record<
   alquiler: [
     "alquiler-plazo-minimo",
     "alquiler-deposito-un-mes",
+  "alquiler-deposito-multiples-meses",
     "alquiler-ajuste-periodicidad",
     "alquiler-indexacion",
+  "alquiler-clausula-penal",
+  "alquiler-fianza",
     "alquiler-duracion",
     "alquiler-desistimiento",
     "alquiler-gastos",
-    "debug-canary-alquiler", // ← NUEVO
+  "alquiler-garante-solidario",
+  "alquiler-jurisdiccion",
+  "alquiler-inconsistencia-temporaria",
   ],
   servicios: [
     "servicios-plan-permanencia",

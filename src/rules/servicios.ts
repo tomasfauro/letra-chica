@@ -136,6 +136,53 @@ export const ruleDatosCesion: Rule = (raw) => {
   const ctxLegal = getLegalContext(raw);
   const out: ReturnType<Rule> = [];
 
+  // A) Perfilado/profiling como disparador independiente (sin exigir 'datos')
+  //    Cubrimos wording como "Se autoriza el perfilado con base en el interés legítimo..."
+  const PROFILING = /\b(perfilad[oa]|profiling)\b/i;
+  const LEGIT_INTEREST = /\b(inter[eé]s\s+leg[ií]timo)\b/i;
+  if (PROFILING.test(lower)) {
+    const idx = lower.search(PROFILING);
+    const neg = hasNegationNear(lower, Math.max(0, idx), 160);
+    // Señales alrededor
+    const around = sliceAround(lower, Math.max(0, idx), 280);
+    const hasScope = /\b(marketing|publicidad|promoci[oó]n|tercer[oa]s?\s+(?:partes?|personas?)|proveedores?)\b/.test(around);
+    const hasLegalBase = LEGIT_INTEREST.test(around) || /\b(consentimiento|base\s+legal|opt-?in|opt-?out)\b/.test(around);
+    let confidence = 0.7;
+    if (hasScope) confidence += 0.1;
+    if (hasLegalBase) confidence += 0.05;
+    if (neg) confidence -= 0.25;
+    confidence = Math.max(0.4, Math.min(0.98, confidence));
+    const severity: "low" | "medium" | "high" = neg ? "low" : hasScope ? "high" : "medium";
+    out.push(
+      makeFinding({
+        id: "proteccion-datos",
+        title: hasScope
+          ? "Perfilado de usuarios con posibles fines comerciales"
+          : "Perfilado de usuarios (verificar base legal)",
+        severity,
+        description: hasScope
+          ? "Se detecta perfilado de usuarios y posibles fines comerciales/marketing. Verificá consentimiento/opt-out o base legal adecuada."
+          : "Se detecta perfilado de usuarios. Confirmá base legal (consentimiento o interés legítimo) y derechos de oposición.",
+        text: raw,
+        index: Math.max(0, idx),
+        window: 300,
+        meta: {
+          type: "legal",
+          confidence: +confidence.toFixed(2),
+          country: "AR",
+          regime: ctxLegal.regime,
+          legalBasis: legalBasisAR(),
+          bullets: [
+            "Identificá finalidad del perfilado (servicio vs. fines comerciales).",
+            "Exigí consentimiento válido u otra base legal y canal de oposición.",
+            "Revisá plazos y transferencias a terceros si aplica.",
+          ],
+          keywords: ["perfilado", "profiling", "consentimiento", "interés legítimo", "opt-out"],
+        },
+      })
+    );
+  }
+
   // 0) Global ANY-ORDER: acción + datos + alcance (terceros/marketing/publicidad)
   if (HAS_ACTION.test(lower) && HAS_DATOS.test(lower) && HAS_SCOPE.test(lower)) {
     const idx = lower.search(HAS_ACTION); // primer match como ancla
@@ -332,9 +379,10 @@ export const ruleJurisdiccionArbitraje: Rule = (raw) => {
   if (lejos || obligatorio) severity = "medium";
   if (obligatorio && renunciaFuero) severity = "high";
 
+  const country = ctxLegal.country === "UNKNOWN" ? "AR" : ctxLegal.country;
   return [
     makeFinding({
-      id: "jurisdiccion-arbitraje",
+      id: "servicios-jurisdiccion-arbitraje",
       title: "Jurisdicción / arbitraje",
       severity,
       description:
@@ -347,7 +395,7 @@ export const ruleJurisdiccionArbitraje: Rule = (raw) => {
       meta: {
         type: "heuristic",
         confidence,
-        country: "AR",
+        country,
         regime: ctxLegal.regime,
         bullets: [
           "Chequeá si el contrato impone un tribunal fuera de tu localidad.",
